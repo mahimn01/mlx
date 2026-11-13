@@ -1806,6 +1806,13 @@ std::vector<array> CustomTransforms::vjp(
   // Extract the inputs to the VJP function
   std::vector<array> inputs(primals.begin(), primals.end() - num_outputs_);
 
+  // Run the full backward of the function as one unit. Start it after the
+  // cotangents are ready and make the requested vjps ready together.
+  bool group = group_vjps_ && argnums.size() > 1;
+  if (group) {
+    inputs = depends(inputs, cotangents);
+  }
+
   // Compute all the vjps
   auto all_vjps = vjp_fun_(inputs, cotangents, outputs);
   for (const auto& cot : cotangents) {
@@ -1817,6 +1824,10 @@ std::vector<array> CustomTransforms::vjp(
   vjps.reserve(argnums.size());
   for (auto arg : argnums) {
     vjps.push_back(all_vjps[arg]);
+  }
+
+  if (group) {
+    vjps = depends(vjps, vjps);
   }
 
   return vjps;

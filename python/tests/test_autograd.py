@@ -1806,6 +1806,51 @@ class TestAutograd(mlx_tests.MLXTestCase):
                     gc.collect()
                     self.assertIsNone(ref())
 
+    def test_checkpoint_chain_memory(self):
+        H, D, C = 4, 64, 16
+        state_bytes = H * D * D * 4
+
+        def step(s, kc, vc):
+            for t in range(C):
+                delta = vc[t] - (s * kc[t][:, None, :]).sum(-1)
+                s = s + delta[:, :, None] * kc[t][:, None, :]
+            return s
+
+        def inputs(n):
+            ks = [mx.random.normal((C, H, D)) * 0.05 for _ in range(n)]
+            vs = [mx.random.normal((C, H, D)) for _ in range(n)]
+            s0 = mx.random.normal((H, D, D)) * 0.1
+            mx.eval(ks, vs, s0)
+            return s0, ks, vs
+
+        def loss(s, ks, vs, fn):
+            for kc, vc in zip(ks, vs):
+                s = fn(s, kc, vc)
+            return s.sum()
+
+        def grads(fn, s0, ks, vs):
+            return mx.grad(loss, argnums=(0, 1, 2))(s0, ks, vs, fn)
+
+        args = inputs(3)
+        expected = grads(step, *args)
+        out = grads(mx.checkpoint(step), *args)
+        self.assertTrue(mx.allclose(expected[0], out[0]))
+        for e, o in zip(expected[1] + expected[2], out[1] + out[2]):
+            self.assertTrue(mx.allclose(e, o))
+
+        def peak(n):
+            args = inputs(n)
+            mx.synchronize()
+            mx.reset_peak_memory()
+            base = mx.get_active_memory()
+            mx.eval(grads(mx.checkpoint(step), *args))
+            return mx.get_peak_memory() - base
+
+        peak(4)
+        small, large = peak(4), peak(32)
+        # Each extra call keeps its input state, not one state per step
+        self.assertLess(large - small, 28 * (C // 2) * state_bytes)
+
 
 if __name__ == "__main__":
     mlx_tests.MLXTestRunner()

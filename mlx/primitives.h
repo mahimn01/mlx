@@ -847,12 +847,14 @@ class CustomTransforms : public Primitive {
           const std::vector<int>&)> jvp,
       std::function<std::pair<std::vector<array>, std::vector<int>>(
           const std::vector<array>&,
-          const std::vector<int>&)> vmap)
+          const std::vector<int>&)> vmap,
+      bool group_vjps = false)
       : Primitive(stream),
         num_outputs_(num_outputs),
         vjp_fun_(std::move(vjp)),
         jvp_fun_(std::move(jvp)),
-        vmap_fun_(std::move(vmap)) {}
+        vmap_fun_(std::move(vmap)),
+        group_vjps_(group_vjps) {}
 
   void eval_cpu(const std::vector<array>& inputs, std::vector<array>& outputs)
       override;
@@ -882,6 +884,7 @@ class CustomTransforms : public Primitive {
       const std::vector<array>&,
       const std::vector<int>&)>
       vmap_fun_;
+  bool group_vjps_;
 };
 
 class Depends : public Primitive {
